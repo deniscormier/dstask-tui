@@ -28,7 +28,9 @@ func (i dstaskListItem) FilterValue() string { return i.title + "\n" + i.descrip
 func (i dstaskListItem) Title() string       { return i.title }
 func (i dstaskListItem) Description() string { return i.description }
 
-// TODO Status bar at the bottom instead of crashing the script
+// TODO Status bar at the bottom
+// * Display errors instead of crashing the script
+// * Display command output from sync (as an example)
 type dstaskErrorMsg struct{ err error }
 
 type dstaskNextMsg struct{ tasks []dstask.Task }
@@ -54,6 +56,9 @@ func dstaskNext() tea.Msg {
 	return dstaskNextMsg{tasks}
 }
 
+// TODO Model and view for context command (Always see current context)
+// TODO Model and view for add/log commands (tabs/toggle between, aceept input)
+// TODO Tabs or toggle between next, show-active, show-paused, show-open, show-resolved, show-unorganized
 type model struct {
 	// table table.Model
 	listModel list.Model
@@ -99,6 +104,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dstaskNextMsg:
 		var taskItems []list.Item
 		for _, task := range msg.tasks {
+			// TODO Indicator for started/stopped
 			description := fmt.Sprintf("#%d %s", task.ID, task.Priority)
 			tags := strings.Join(task.Tags, " +")
 			if tags != "" {
