@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/naggie/dstask"
@@ -17,28 +18,27 @@ import (
 var docStyle = lipgloss.NewStyle().Margin(1, 2)
 
 type dstaskListItem struct {
+	id          string
 	title       string
 	description string
 }
 
-func (i dstaskListItem) FilterValue() string { return i.title }
+// TODO Exact filtering for ID + Priority
+func (i dstaskListItem) FilterValue() string { return i.title + "\n" + i.description }
 func (i dstaskListItem) Title() string       { return i.title }
 func (i dstaskListItem) Description() string { return i.description }
 
+// TODO Status bar at the bottom instead of crashing the script
 type dstaskErrorMsg struct{ err error }
 
 type dstaskNextMsg struct{ tasks []dstask.Task }
 
-// func openEditor() tea.Cmd {
-// 	editor := os.Getenv("EDITOR")
-// 	if editor == "" {
-// 		editor = "vim"
-// 	}
-// 	c := exec.Command(editor) //nolint:gosec
-// 	return tea.ExecProcess(c, func(err error) tea.Msg {
-// 		return editorFinishedMsg{err}
-// 	})
-// }
+func dstaskCmdForID(cmd string, id string) tea.Cmd {
+	c := exec.Command("dstask", cmd, id)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return dstaskErrorMsg{err}
+	})
+}
 
 func dstaskNext() tea.Msg {
 	c := exec.Command("dstask")
@@ -52,22 +52,15 @@ func dstaskNext() tea.Msg {
 		return dstaskErrorMsg{err}
 	}
 	return dstaskNextMsg{tasks}
-
-	// return tea.ExecProcess(c, func(err error) tea.Msg {
-	// 	return editorFinishedMsg{err}
-	// })
 }
 
 type model struct {
-	// altscreenActive bool
 	// table table.Model
-	// contents string
 	listModel list.Model
 	err       error
 }
 
 func (m model) Init() tea.Cmd {
-	// return nil
 	return dstaskNext
 }
 
@@ -75,16 +68,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		// case "a":
-		// 	m.altscreenActive = !m.altscreenActive
-		// 	cmd := tea.EnterAltScreen
-		// 	if !m.altscreenActive {
-		// 		cmd = tea.ExitAltScreen
-		// 	}
-		// 	return m, cmd
 		case "r":
-			// return m, openEditor()
 			return m, dstaskNext
+		case "n", "enter":
+			i, ok := m.listModel.SelectedItem().(dstaskListItem)
+			if ok {
+				return m, dstaskCmdForID("note", i.id)
+			}
+		case "e":
+			i, ok := m.listModel.SelectedItem().(dstaskListItem)
+			if ok {
+				return m, dstaskCmdForID("edit", i.id)
+			}
+		case "o":
+			i, ok := m.listModel.SelectedItem().(dstaskListItem)
+			if ok {
+				return m, dstaskCmdForID("open", i.id)
+			}
+		case "d":
+			i, ok := m.listModel.SelectedItem().(dstaskListItem)
+			if ok {
+				return m, dstaskCmdForID("done", i.id)
+			}
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		}
@@ -94,25 +99,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dstaskNextMsg:
 		var taskItems []list.Item
 		for _, task := range msg.tasks {
-			title := fmt.Sprintf("%-2d | %s", task.ID, task.Priority)
+			description := fmt.Sprintf("#%d %s", task.ID, task.Priority)
 			tags := strings.Join(task.Tags, " +")
 			if tags != "" {
-				title = title + " | +" + tags
+				description += " +" + tags
 			}
 			if task.Project != "" {
-				title = title + " | project:" + task.Project
+				description += " project:" + task.Project
+			}
+			notes := strings.TrimSpace(task.Notes)
+			noteLines := strings.Split(notes, "\n")
+			lastNote := noteLines[len(noteLines)-1]
+			if len(lastNote) > 0 {
+				description += " / " + lastNote
 			}
 			taskItems = append(taskItems, dstaskListItem{
-				title:       title,
-				description: task.LongSummary(),
+				// title:       title,
+				// description: task.LongSummary(),
+				id:          strconv.Itoa(task.ID),
+				title:       task.Summary,
+				description: description,
 			})
 		}
 		return m, m.listModel.SetItems(taskItems)
-		// m.contents = string(msg.contents)
 	case dstaskErrorMsg:
 		if msg.err != nil {
 			m.err = msg.err
 			return m, tea.Quit
+		} else {
+			return m, dstaskNext
 		}
 	}
 	var cmd tea.Cmd
@@ -132,7 +147,7 @@ func (m model) View() string {
 func main() {
 	m := model{}
 	m.listModel = list.New(nil, list.NewDefaultDelegate(), 0, 0)
-	m.listModel.Title = "dstask"
+	m.listModel.Title = "dstask next"
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)

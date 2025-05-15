@@ -1,4 +1,4 @@
-module github.com/denis-engcom/dstask-tui
+module github.com/deniscormier/dstask-tui
 
 go 1.23.5
 
