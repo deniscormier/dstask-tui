@@ -10,6 +10,7 @@ import (
 
 	"github.com/naggie/dstask"
 	// "github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -69,38 +70,88 @@ func (m model) Init() tea.Cmd {
 	return dstaskNext
 }
 
+type KeyMap struct {
+	refresh key.Binding
+	note    key.Binding
+	edit    key.Binding
+	open    key.Binding
+	start   key.Binding
+	stop    key.Binding
+	done    key.Binding
+}
+
+var keys = KeyMap{
+	refresh: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh"),
+	),
+	note: key.NewBinding(
+		key.WithKeys("enter", "n"),
+		key.WithHelp("enter/n", dstask.CMD_NOTE),
+	),
+	edit: key.NewBinding(
+		key.WithKeys("e"),
+		key.WithHelp("e", dstask.CMD_EDIT),
+	),
+	open: key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", dstask.CMD_OPEN),
+	),
+	start: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", dstask.CMD_START),
+	),
+	stop: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", dstask.CMD_STOP),
+	),
+	done: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", dstask.CMD_DONE),
+	),
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 		if !m.listModel.SettingFilter() {
-			switch msg.String() {
-			case "r":
+			switch {
+			case key.Matches(msg, keys.refresh):
 				return m, dstaskNext
-			case "n", "enter":
+			case key.Matches(msg, keys.note):
 				i, ok := m.listModel.SelectedItem().(dstaskListItem)
 				if ok {
-					return m, dstaskCmdForID("note", i.id)
+					return m, dstaskCmdForID(dstask.CMD_NOTE, i.id)
 				}
-			case "e":
+			case key.Matches(msg, keys.edit):
 				i, ok := m.listModel.SelectedItem().(dstaskListItem)
 				if ok {
-					return m, dstaskCmdForID("edit", i.id)
+					return m, dstaskCmdForID(dstask.CMD_EDIT, i.id)
 				}
-			case "o":
+			case key.Matches(msg, keys.open):
 				i, ok := m.listModel.SelectedItem().(dstaskListItem)
 				if ok {
-					return m, dstaskCmdForID("open", i.id)
+					return m, dstaskCmdForID(dstask.CMD_OPEN, i.id)
 				}
-			case "d":
+			case key.Matches(msg, keys.start):
 				i, ok := m.listModel.SelectedItem().(dstaskListItem)
 				if ok {
-					return m, dstaskCmdForID("done", i.id)
+					return m, dstaskCmdForID(dstask.CMD_START, i.id)
 				}
-			case "q":
+			case key.Matches(msg, keys.stop):
+				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				if ok {
+					return m, dstaskCmdForID(dstask.CMD_STOP, i.id)
+				}
+			case key.Matches(msg, keys.done):
+				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				if ok {
+					return m, dstaskCmdForID(dstask.CMD_DONE, i.id)
+				}
+			case msg.String() == "q":
 				return m, tea.Quit
 			}
 		}
@@ -110,7 +161,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dstaskNextMsg:
 		var taskItems []list.Item
 		for _, task := range msg.tasks {
-			// TODO Indicator for started/stopped
+			title := task.Summary
+			if task.Status != dstask.STATUS_PENDING {
+				title += " %" + task.Status
+			}
 			description := fmt.Sprintf("#%d %s", task.ID, task.Priority)
 			tags := strings.Join(task.Tags, " +")
 			if tags != "" {
@@ -129,7 +183,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// title:       title,
 				// description: task.LongSummary(),
 				id:          strconv.Itoa(task.ID),
-				title:       task.Summary,
+				title:       title,
 				description: description,
 			})
 		}
@@ -158,7 +212,26 @@ func (m model) View() string {
 func main() {
 	m := model{}
 	m.listModel = list.New(nil, list.NewDefaultDelegate(), 0, 0)
-	m.listModel.Title = "dstask next"
+	m.listModel.Title = "dstask " + dstask.CMD_NEXT
+	m.listModel.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			keys.refresh,
+			keys.note,
+			keys.edit,
+			keys.done,
+		}
+	}
+	m.listModel.AdditionalFullHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			keys.refresh,
+			keys.note,
+			keys.edit,
+			keys.open,
+			keys.start,
+			keys.stop,
+			keys.done,
+		}
+	}
 
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
