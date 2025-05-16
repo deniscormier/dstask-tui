@@ -73,30 +73,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "r":
-			return m, dstaskNext
-		case "n", "enter":
-			i, ok := m.listModel.SelectedItem().(dstaskListItem)
-			if ok {
-				return m, dstaskCmdForID("note", i.id)
-			}
-		case "e":
-			i, ok := m.listModel.SelectedItem().(dstaskListItem)
-			if ok {
-				return m, dstaskCmdForID("edit", i.id)
-			}
-		case "o":
-			i, ok := m.listModel.SelectedItem().(dstaskListItem)
-			if ok {
-				return m, dstaskCmdForID("open", i.id)
-			}
-		case "d":
-			i, ok := m.listModel.SelectedItem().(dstaskListItem)
-			if ok {
-				return m, dstaskCmdForID("done", i.id)
-			}
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			return m, tea.Quit
+		}
+		if !m.listModel.SettingFilter() {
+			switch msg.String() {
+			case "r":
+				return m, dstaskNext
+			case "n", "enter":
+				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				if ok {
+					return m, dstaskCmdForID("note", i.id)
+				}
+			case "e":
+				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				if ok {
+					return m, dstaskCmdForID("edit", i.id)
+				}
+			case "o":
+				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				if ok {
+					return m, dstaskCmdForID("open", i.id)
+				}
+			case "d":
+				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				if ok {
+					return m, dstaskCmdForID("done", i.id)
+				}
+			case "q":
+				return m, tea.Quit
+			}
 		}
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
@@ -147,13 +153,13 @@ func (m model) View() string {
 	} else {
 		return m.listModel.View()
 	}
-	// return "Press 'e' to open your EDITOR.\nPress 'a' to toggle the altscreen\nPress 'q' to quit.\n"
 }
 
 func main() {
 	m := model{}
 	m.listModel = list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	m.listModel.Title = "dstask next"
+
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
