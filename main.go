@@ -34,6 +34,8 @@ func (i dstaskListItem) Description() string { return i.description }
 // * Display command output from sync (as an example)
 type dstaskErrorMsg struct{ err error }
 
+type dstaskActiveContextMsg struct{ activeContext string }
+
 type dstaskNextMsg struct{ tasks []dstask.Task }
 
 func dstaskCmdForID(cmd string, id string) tea.Cmd {
@@ -41,6 +43,17 @@ func dstaskCmdForID(cmd string, id string) tea.Cmd {
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return dstaskErrorMsg{err}
 	})
+}
+
+func dstaskActiveContext() tea.Msg {
+	c := exec.Command("dstask", "context")
+	b, err := c.Output()
+	if err != nil {
+		return dstaskErrorMsg{err}
+	}
+	// The newline from the command output complicates the rendering. Remove it.
+	trimmed := strings.TrimRight(string(b), "\n")
+	return dstaskActiveContextMsg{trimmed}
 }
 
 func dstaskNext() tea.Msg {
@@ -62,12 +75,13 @@ func dstaskNext() tea.Msg {
 // TODO Tabs or toggle between next, show-active, show-paused, show-open, show-resolved, show-unorganized
 type model struct {
 	// table table.Model
-	listModel list.Model
-	err       error
+	activeContext string
+	tasks         list.Model
+	err           error
 }
 
 func (m model) Init() tea.Cmd {
-	return dstaskNext
+	return tea.Batch(dstaskActiveContext, dstaskNext)
 }
 
 type KeyMap struct {
@@ -117,37 +131,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if !m.listModel.SettingFilter() {
+		if !m.tasks.SettingFilter() {
 			switch {
 			case key.Matches(msg, keys.refresh):
-				return m, dstaskNext
+				return m, tea.Batch(dstaskActiveContext, dstaskNext)
 			case key.Matches(msg, keys.note):
-				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				i, ok := m.tasks.SelectedItem().(dstaskListItem)
 				if ok {
 					return m, dstaskCmdForID(dstask.CMD_NOTE, i.id)
 				}
 			case key.Matches(msg, keys.edit):
-				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				i, ok := m.tasks.SelectedItem().(dstaskListItem)
 				if ok {
 					return m, dstaskCmdForID(dstask.CMD_EDIT, i.id)
 				}
 			case key.Matches(msg, keys.open):
-				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				i, ok := m.tasks.SelectedItem().(dstaskListItem)
 				if ok {
 					return m, dstaskCmdForID(dstask.CMD_OPEN, i.id)
 				}
 			case key.Matches(msg, keys.start):
-				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				i, ok := m.tasks.SelectedItem().(dstaskListItem)
 				if ok {
+					// TODO status messages (example here)
+					// return m, tea.Sequence(
+					// 	dstaskCmdForID(dstask.CMD_START, i.id),
+					// 	m.listModel.NewStatusMessage("Hi there!"))
+					// Change status mesage lifetime default of 1 second
+					// m.listModel.StatusMessageLifetime()
 					return m, dstaskCmdForID(dstask.CMD_START, i.id)
 				}
 			case key.Matches(msg, keys.stop):
-				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				i, ok := m.tasks.SelectedItem().(dstaskListItem)
 				if ok {
 					return m, dstaskCmdForID(dstask.CMD_STOP, i.id)
 				}
 			case key.Matches(msg, keys.done):
-				i, ok := m.listModel.SelectedItem().(dstaskListItem)
+				i, ok := m.tasks.SelectedItem().(dstaskListItem)
 				if ok {
 					return m, dstaskCmdForID(dstask.CMD_DONE, i.id)
 				}
@@ -157,7 +177,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
-		m.listModel.SetSize(msg.Width-h, msg.Height-v)
+		m.tasks.SetSize(msg.Width-h, msg.Height-v-2)
+	case dstaskActiveContextMsg:
+		m.activeContext = msg.activeContext
+		return m, nil
 	case dstaskNextMsg:
 		var taskItems []list.Item
 		for _, task := range msg.tasks {
@@ -187,7 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				description: description,
 			})
 		}
-		return m, m.listModel.SetItems(taskItems)
+		return m, m.tasks.SetItems(taskItems)
 	case dstaskErrorMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -197,23 +220,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	var cmd tea.Cmd
-	m.listModel, cmd = m.listModel.Update(msg)
+	m.tasks, cmd = m.tasks.Update(msg)
 	return m, cmd
 }
 
 func (m model) View() string {
 	if m.err != nil {
 		return "Error: " + m.err.Error() + "\n"
-	} else {
-		return m.listModel.View()
 	}
+	return docStyle.Render("Active context: " + m.activeContext + "\n\n" + m.tasks.View())
+	// return m.tasks.View()
 }
 
 func main() {
 	m := model{}
-	m.listModel = list.New(nil, list.NewDefaultDelegate(), 0, 0)
-	m.listModel.Title = "dstask " + dstask.CMD_NEXT
-	m.listModel.AdditionalShortHelpKeys = func() []key.Binding {
+	m.tasks = list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	m.tasks.Title = "dstask " + dstask.CMD_NEXT
+	m.tasks.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			keys.refresh,
 			keys.note,
@@ -221,7 +244,7 @@ func main() {
 			keys.done,
 		}
 	}
-	m.listModel.AdditionalFullHelpKeys = func() []key.Binding {
+	m.tasks.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			keys.refresh,
 			keys.note,
@@ -232,6 +255,7 @@ func main() {
 			keys.done,
 		}
 	}
+	m.tasks.SetStatusBarItemName("task", "tasks")
 
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
