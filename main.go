@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -36,6 +37,8 @@ type dstaskErrorMsg struct{ err error }
 
 type dstaskActiveContextMsg struct{ activeContext string }
 
+type dstaskSetContextMsg struct{}
+
 type dstaskNextMsg struct{ tasks []dstask.Task }
 
 func dstaskCmdForID(cmd string, id string) tea.Cmd {
@@ -56,6 +59,15 @@ func dstaskActiveContext() tea.Msg {
 	return dstaskActiveContextMsg{trimmed}
 }
 
+func dstaskSetContext(context string) tea.Msg {
+	c := exec.Command("dstask", "context", context)
+	err := c.Run()
+	if err != nil {
+		return dstaskErrorMsg{err}
+	}
+	return dstaskSetContextMsg{}
+}
+
 func dstaskNext() tea.Msg {
 	c := exec.Command("dstask")
 	b, err := c.Output()
@@ -70,28 +82,40 @@ func dstaskNext() tea.Msg {
 	return dstaskNextMsg{tasks}
 }
 
-// TODO Model and view for context command (Always see current context)
-// TODO Model and view for add/log commands (tabs/toggle between, aceept input)
+type viewType int
+
+const (
+	viewTypeTasksNext viewType = iota
+	viewTypeSetContext
+)
+
+// TODO Model and view for add/log commands (tabs/toggle between, accept input)
+// Add "a" keybinding for "add" ("l" for "log")
+// When pressed, hide list, unhide huh.Form ()
+// https://github.com/charmbracelet/huh/blob/main/examples/bubbletea/main.go#L76
 // TODO Tabs or toggle between next, show-active, show-paused, show-open, show-resolved, show-unorganized
 type model struct {
 	// table table.Model
-	activeContext string
-	tasks         list.Model
-	err           error
+	currentView    viewType
+	activeContext  string
+	setContextForm tea.Model
+	tasks          list.Model
+	err            error
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(dstaskActiveContext, dstaskNext)
+	return tea.Batch(dstaskActiveContext, dstaskNext, m.setContextForm.Init())
 }
 
 type KeyMap struct {
-	refresh key.Binding
-	note    key.Binding
-	edit    key.Binding
-	open    key.Binding
-	start   key.Binding
-	stop    key.Binding
-	done    key.Binding
+	refresh        key.Binding
+	note           key.Binding
+	edit           key.Binding
+	open           key.Binding
+	start          key.Binding
+	stop           key.Binding
+	done           key.Binding
+	setContextView key.Binding
 }
 
 var keys = KeyMap{
@@ -99,9 +123,14 @@ var keys = KeyMap{
 		key.WithKeys("r"),
 		key.WithHelp("r", "refresh"),
 	),
+	// TODO remove enter for now...
+	// note: key.NewBinding(
+	// 	key.WithKeys("enter", "n"),
+	// 	key.WithHelp("enter/n", dstask.CMD_NOTE),
+	// ),
 	note: key.NewBinding(
-		key.WithKeys("enter", "n"),
-		key.WithHelp("enter/n", dstask.CMD_NOTE),
+		key.WithKeys("n"),
+		key.WithHelp("n", dstask.CMD_NOTE),
 	),
 	edit: key.NewBinding(
 		key.WithKeys("e"),
@@ -123,6 +152,15 @@ var keys = KeyMap{
 		key.WithKeys("d"),
 		key.WithHelp("d", dstask.CMD_DONE),
 	),
+	// TODO use esc, but only in "set context" view
+	// setNextView: key.NewBinding(
+	// 	key.WithKeys("c"),
+	// 	key.WithHelp("c", "Set context..."),
+	// ),
+	setContextView: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "Set context..."),
+	),
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -131,7 +169,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if !m.tasks.SettingFilter() {
+		if m.currentView == viewTypeTasksNext && !m.tasks.SettingFilter() {
 			switch {
 			case key.Matches(msg, keys.refresh):
 				return m, tea.Batch(dstaskActiveContext, dstaskNext)
@@ -171,6 +209,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					return m, dstaskCmdForID(dstask.CMD_DONE, i.id)
 				}
+			case key.Matches(msg, keys.setContextView):
+				m.currentView = viewTypeSetContext
+				return m, nil
 			case msg.String() == "q":
 				return m, tea.Quit
 			}
@@ -181,6 +222,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dstaskActiveContextMsg:
 		m.activeContext = msg.activeContext
 		return m, nil
+	case dstaskSetContextMsg:
+		return m, dstaskActiveContext
 	case dstaskNextMsg:
 		var taskItems []list.Item
 		for _, task := range msg.tasks {
@@ -221,15 +264,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.tasks, cmd = m.tasks.Update(msg)
-	return m, cmd
+	batch := tea.BatchMsg{cmd}
+
+	m.setContextForm, cmd = m.setContextForm.Update(msg)
+	if f, ok := m.setContextForm.(*huh.Form); ok {
+		m.setContextForm = f
+		batch = append(batch, cmd)
+	}
+	return m, tea.Batch(batch...)
 }
 
 func (m model) View() string {
 	if m.err != nil {
-		return "Error: " + m.err.Error() + "\n"
+		return "Error: " + m.err.Error()
 	}
-	return docStyle.Render("Active context: " + m.activeContext + "\n\n" + m.tasks.View())
-	// return m.tasks.View()
+	var currentViewContents string
+	switch m.currentView {
+	case viewTypeTasksNext:
+		currentViewContents = m.tasks.View()
+	case viewTypeSetContext:
+		currentViewContents = m.setContextForm.View()
+	default:
+		return "Error: invalid view type set in app"
+	}
+	return docStyle.Render("Active context: " + m.activeContext + "\n\n" + currentViewContents)
 }
 
 func main() {
@@ -253,9 +311,25 @@ func main() {
 			keys.start,
 			keys.stop,
 			keys.done,
+			keys.setContextView,
 		}
 	}
 	m.tasks.SetStatusBarItemName("task", "tasks")
+
+	setContextForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key("context").
+				Title("Set context to...").
+				Description("Guides tasks displayed by default").
+				Placeholder("P1 +this -that project:myproject"),
+		),
+	)
+	setContextForm.SubmitCmd = func() tea.Msg {
+		return dstaskSetContext(setContextForm.GetString("context"))
+	}
+	m.setContextForm = setContextForm
+	// TODO show help menu in form
 
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
