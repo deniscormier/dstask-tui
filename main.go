@@ -90,9 +90,7 @@ const (
 )
 
 // TODO Model and view for add/log commands (tabs/toggle between, accept input)
-// Add "a" keybinding for "add" ("l" for "log")
-// When pressed, hide list, unhide huh.Form ()
-// https://github.com/charmbracelet/huh/blob/main/examples/bubbletea/main.go#L76
+// Add "a" keybinding for "add" ("l" for "log"), follow setContextView example
 // TODO Tabs or toggle between next, show-active, show-paused, show-open, show-resolved, show-unorganized
 type model struct {
 	// table table.Model
@@ -169,7 +167,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dstaskSetContextMsg:
 		m.currentView = viewTypeTasksNext
 		m.setContextForm = newSetContextForm()
-		return m, tea.Batch(dstaskActiveContext, dstaskNext)
+		cmd := m.setContextForm.Init()
+		return m, tea.Batch(dstaskActiveContext, dstaskNext, cmd)
 	case dstaskNextMsg:
 		var taskItems []list.Item
 		for _, task := range msg.tasks {
