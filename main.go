@@ -17,8 +17,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var docStyle = lipgloss.NewStyle().Margin(1, 2)
-
 type dstaskListItem struct {
 	id          string
 	title       string
@@ -60,7 +58,9 @@ func dstaskActiveContext() tea.Msg {
 }
 
 func dstaskSetContext(context string) tea.Msg {
-	c := exec.Command("dstask", "context", context)
+	args := []string{"context"}
+	args = append(args, strings.Fields(context)...)
+	c := exec.Command("dstask", args...)
 	err := c.Run()
 	if err != nil {
 		return dstaskErrorMsg{err}
@@ -105,62 +105,6 @@ type model struct {
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(dstaskActiveContext, dstaskNext, m.setContextForm.Init())
-}
-
-type KeyMap struct {
-	refresh        key.Binding
-	note           key.Binding
-	edit           key.Binding
-	open           key.Binding
-	start          key.Binding
-	stop           key.Binding
-	done           key.Binding
-	setContextView key.Binding
-}
-
-var keys = KeyMap{
-	refresh: key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "refresh"),
-	),
-	// TODO remove enter for now...
-	// note: key.NewBinding(
-	// 	key.WithKeys("enter", "n"),
-	// 	key.WithHelp("enter/n", dstask.CMD_NOTE),
-	// ),
-	note: key.NewBinding(
-		key.WithKeys("n"),
-		key.WithHelp("n", dstask.CMD_NOTE),
-	),
-	edit: key.NewBinding(
-		key.WithKeys("e"),
-		key.WithHelp("e", dstask.CMD_EDIT),
-	),
-	open: key.NewBinding(
-		key.WithKeys("o"),
-		key.WithHelp("o", dstask.CMD_OPEN),
-	),
-	start: key.NewBinding(
-		key.WithKeys("s"),
-		key.WithHelp("s", dstask.CMD_START),
-	),
-	stop: key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", dstask.CMD_STOP),
-	),
-	done: key.NewBinding(
-		key.WithKeys("d"),
-		key.WithHelp("d", dstask.CMD_DONE),
-	),
-	// TODO use esc, but only in "set context" view
-	// setNextView: key.NewBinding(
-	// 	key.WithKeys("c"),
-	// 	key.WithHelp("c", "Set context..."),
-	// ),
-	setContextView: key.NewBinding(
-		key.WithKeys("c"),
-		key.WithHelp("c", "Set context..."),
-	),
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -223,7 +167,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeContext = msg.activeContext
 		return m, nil
 	case dstaskSetContextMsg:
-		return m, dstaskActiveContext
+		m.currentView = viewTypeTasksNext
+		m.setContextForm = newSetContextForm()
+		return m, tea.Batch(dstaskActiveContext, dstaskNext)
 	case dstaskNextMsg:
 		var taskItems []list.Item
 		for _, task := range msg.tasks {
@@ -274,6 +220,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(batch...)
 }
 
+var docStyle = lipgloss.NewStyle().Margin(1, 2)
+
 func (m model) View() string {
 	if m.err != nil {
 		return "Error: " + m.err.Error()
@@ -290,11 +238,79 @@ func (m model) View() string {
 	return docStyle.Render("Active context: " + m.activeContext + "\n\n" + currentViewContents)
 }
 
-func main() {
-	m := model{}
-	m.tasks = list.New(nil, list.NewDefaultDelegate(), 0, 0)
-	m.tasks.Title = "dstask " + dstask.CMD_NEXT
-	m.tasks.AdditionalShortHelpKeys = func() []key.Binding {
+// TODO show help menu in form
+func newSetContextForm() *huh.Form {
+	input := huh.NewInput().
+		Title("Set context to...").
+		Description(`Provide "dstask context" args for default filtering of tasks`).
+		Placeholder("P1 +this -that project:myproject")
+	setContextForm := huh.NewForm(huh.NewGroup(input))
+	setContextForm.SubmitCmd = func() tea.Msg {
+		return dstaskSetContext(input.GetValue().(string))
+	}
+	return setContextForm
+}
+
+type KeyMap struct {
+	refresh        key.Binding
+	note           key.Binding
+	edit           key.Binding
+	open           key.Binding
+	start          key.Binding
+	stop           key.Binding
+	done           key.Binding
+	setContextView key.Binding
+}
+
+var keys = KeyMap{
+	refresh: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh"),
+	),
+	// TODO remove enter for now...
+	// note: key.NewBinding(
+	// 	key.WithKeys("enter", "n"),
+	// 	key.WithHelp("enter/n", dstask.CMD_NOTE),
+	// ),
+	note: key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", dstask.CMD_NOTE),
+	),
+	edit: key.NewBinding(
+		key.WithKeys("e"),
+		key.WithHelp("e", dstask.CMD_EDIT),
+	),
+	open: key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", dstask.CMD_OPEN),
+	),
+	start: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", dstask.CMD_START),
+	),
+	stop: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", dstask.CMD_STOP),
+	),
+	done: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", dstask.CMD_DONE),
+	),
+	// TODO use esc, but only in "set context" view
+	// setNextView: key.NewBinding(
+	// 	key.WithKeys("c"),
+	// 	key.WithHelp("c", "Set context..."),
+	// ),
+	setContextView: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "Set context..."),
+	),
+}
+
+func initialModel() model {
+	tasks := list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	tasks.Title = "dstask " + dstask.CMD_NEXT
+	tasks.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			keys.refresh,
 			keys.note,
@@ -302,7 +318,7 @@ func main() {
 			keys.done,
 		}
 	}
-	m.tasks.AdditionalFullHelpKeys = func() []key.Binding {
+	tasks.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			keys.refresh,
 			keys.note,
@@ -314,24 +330,16 @@ func main() {
 			keys.setContextView,
 		}
 	}
-	m.tasks.SetStatusBarItemName("task", "tasks")
+	tasks.SetStatusBarItemName("task", "tasks")
 
-	setContextForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Key("context").
-				Title("Set context to...").
-				Description("Guides tasks displayed by default").
-				Placeholder("P1 +this -that project:myproject"),
-		),
-	)
-	setContextForm.SubmitCmd = func() tea.Msg {
-		return dstaskSetContext(setContextForm.GetString("context"))
+	return model{
+		tasks:          tasks,
+		setContextForm: newSetContextForm(),
 	}
-	m.setContextForm = setContextForm
-	// TODO show help menu in form
+}
 
-	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+func main() {
+	if _, err := tea.NewProgram(initialModel(), tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
