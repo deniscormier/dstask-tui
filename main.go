@@ -10,12 +10,94 @@ import (
 
 	"github.com/naggie/dstask"
 	// "github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ****
+// "dstask next" list extra keybindings
+// ****
+type dstaskNextKeyMap struct {
+	refresh        key.Binding
+	note           key.Binding
+	edit           key.Binding
+	open           key.Binding
+	start          key.Binding
+	stop           key.Binding
+	done           key.Binding
+	setContextView key.Binding
+	quit           key.Binding
+}
+
+var dstaskNextKeys = dstaskNextKeyMap{
+	refresh: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh"),
+	),
+	note: key.NewBinding(
+		key.WithKeys("enter", "n"),
+		key.WithHelp("enter/n", dstask.CMD_NOTE),
+	),
+	edit: key.NewBinding(
+		key.WithKeys("e"),
+		key.WithHelp("e", dstask.CMD_EDIT),
+	),
+	open: key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", dstask.CMD_OPEN),
+	),
+	start: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", dstask.CMD_START),
+	),
+	stop: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", dstask.CMD_STOP),
+	),
+	done: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", dstask.CMD_DONE),
+	),
+	setContextView: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "Set context..."),
+	),
+	quit: key.NewBinding(
+		key.WithKeys("esc", "q"),
+		key.WithHelp("esc/q", "quit"),
+	),
+}
+
+// ****
+// "dstask context" keybindings
+// ****
+type setContextKeyMap struct {
+	submit key.Binding
+	cancel key.Binding
+}
+
+var setContextKeys = setContextKeyMap{
+	submit: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "submit"),
+	),
+	cancel: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "cancel"),
+	),
+}
+
+func (k setContextKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.submit, k.cancel}
+}
+
+func (k setContextKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{{k.submit, k.cancel}}
+}
 
 type dstaskListItem struct {
 	id          string
@@ -95,9 +177,10 @@ const (
 type model struct {
 	// table table.Model
 	currentView    viewType
+	tasks          list.Model
 	activeContext  string
 	setContextForm tea.Model
-	tasks          list.Model
+	setContextHelp help.Model
 	err            error
 }
 
@@ -111,53 +194,71 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if m.currentView == viewTypeTasksNext && !m.tasks.SettingFilter() {
-			switch {
-			case key.Matches(msg, keys.refresh):
-				return m, tea.Batch(dstaskActiveContext, dstaskNext)
-			case key.Matches(msg, keys.note):
-				i, ok := m.tasks.SelectedItem().(dstaskListItem)
-				if ok {
-					return m, dstaskCmdForID(dstask.CMD_NOTE, i.id)
+		switch m.currentView {
+		case viewTypeTasksNext:
+			if !m.tasks.SettingFilter() {
+				switch {
+				case key.Matches(msg, dstaskNextKeys.refresh):
+					return m, tea.Batch(dstaskActiveContext, dstaskNext)
+				case key.Matches(msg, dstaskNextKeys.note):
+					i, ok := m.tasks.SelectedItem().(dstaskListItem)
+					if ok {
+						return m, dstaskCmdForID(dstask.CMD_NOTE, i.id)
+					}
+				case key.Matches(msg, dstaskNextKeys.edit):
+					i, ok := m.tasks.SelectedItem().(dstaskListItem)
+					if ok {
+						return m, dstaskCmdForID(dstask.CMD_EDIT, i.id)
+					}
+				case key.Matches(msg, dstaskNextKeys.open):
+					i, ok := m.tasks.SelectedItem().(dstaskListItem)
+					if ok {
+						return m, dstaskCmdForID(dstask.CMD_OPEN, i.id)
+					}
+				case key.Matches(msg, dstaskNextKeys.start):
+					i, ok := m.tasks.SelectedItem().(dstaskListItem)
+					if ok {
+						// TODO status messages (example here)
+						// return m, tea.Sequence(
+						// 	dstaskCmdForID(dstask.CMD_START, i.id),
+						// 	m.listModel.NewStatusMessage("Hi there!"))
+						// Change status mesage lifetime default of 1 second
+						// m.listModel.StatusMessageLifetime()
+						return m, dstaskCmdForID(dstask.CMD_START, i.id)
+					}
+				case key.Matches(msg, dstaskNextKeys.stop):
+					i, ok := m.tasks.SelectedItem().(dstaskListItem)
+					if ok {
+						return m, dstaskCmdForID(dstask.CMD_STOP, i.id)
+					}
+				case key.Matches(msg, dstaskNextKeys.done):
+					i, ok := m.tasks.SelectedItem().(dstaskListItem)
+					if ok {
+						return m, dstaskCmdForID(dstask.CMD_DONE, i.id)
+					}
+				case key.Matches(msg, dstaskNextKeys.setContextView):
+					m.currentView = viewTypeSetContext
+					return m, nil
+				case key.Matches(msg, dstaskNextKeys.quit):
+					return m, tea.Quit
 				}
-			case key.Matches(msg, keys.edit):
-				i, ok := m.tasks.SelectedItem().(dstaskListItem)
-				if ok {
-					return m, dstaskCmdForID(dstask.CMD_EDIT, i.id)
-				}
-			case key.Matches(msg, keys.open):
-				i, ok := m.tasks.SelectedItem().(dstaskListItem)
-				if ok {
-					return m, dstaskCmdForID(dstask.CMD_OPEN, i.id)
-				}
-			case key.Matches(msg, keys.start):
-				i, ok := m.tasks.SelectedItem().(dstaskListItem)
-				if ok {
-					// TODO status messages (example here)
-					// return m, tea.Sequence(
-					// 	dstaskCmdForID(dstask.CMD_START, i.id),
-					// 	m.listModel.NewStatusMessage("Hi there!"))
-					// Change status mesage lifetime default of 1 second
-					// m.listModel.StatusMessageLifetime()
-					return m, dstaskCmdForID(dstask.CMD_START, i.id)
-				}
-			case key.Matches(msg, keys.stop):
-				i, ok := m.tasks.SelectedItem().(dstaskListItem)
-				if ok {
-					return m, dstaskCmdForID(dstask.CMD_STOP, i.id)
-				}
-			case key.Matches(msg, keys.done):
-				i, ok := m.tasks.SelectedItem().(dstaskListItem)
-				if ok {
-					return m, dstaskCmdForID(dstask.CMD_DONE, i.id)
-				}
-			case key.Matches(msg, keys.setContextView):
-				m.currentView = viewTypeSetContext
-				return m, nil
-			case msg.String() == "q":
-				return m, tea.Quit
 			}
-		}
+			var cmd tea.Cmd
+			m.tasks, cmd = m.tasks.Update(msg)
+			return m, cmd
+
+		case viewTypeSetContext:
+			if msg.String() == "esc" {
+				m.currentView = viewTypeTasksNext
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.setContextForm, cmd = m.setContextForm.Update(msg)
+			if f, ok := m.setContextForm.(*huh.Form); ok {
+				m.setContextForm = f
+			}
+			return m, cmd
+		} // switch m.currentView
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
 		m.tasks.SetSize(msg.Width-h, msg.Height-v-2)
@@ -206,7 +307,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			return m, dstaskNext
 		}
-	}
+	} // switch msg := msg.(type)
 	var cmd tea.Cmd
 	m.tasks, cmd = m.tasks.Update(msg)
 	batch := tea.BatchMsg{cmd}
@@ -225,19 +326,18 @@ func (m model) View() string {
 	if m.err != nil {
 		return "Error: " + m.err.Error()
 	}
-	var currentViewContents string
+	currentViewContents := "Active context: " + m.activeContext + "\n\n"
 	switch m.currentView {
 	case viewTypeTasksNext:
-		currentViewContents = m.tasks.View()
+		currentViewContents += m.tasks.View()
 	case viewTypeSetContext:
-		currentViewContents = m.setContextForm.View()
+		currentViewContents += m.setContextForm.View() + "\n\n" + m.setContextHelp.View(setContextKeys)
 	default:
 		return "Error: invalid view type set in app"
 	}
-	return docStyle.Render("Active context: " + m.activeContext + "\n\n" + currentViewContents)
+	return docStyle.Render(currentViewContents)
 }
 
-// TODO show help menu in form
 func newSetContextForm() *huh.Form {
 	input := huh.NewInput().
 		Title("Set context to...").
@@ -247,93 +347,49 @@ func newSetContextForm() *huh.Form {
 	setContextForm.SubmitCmd = func() tea.Msg {
 		return dstaskSetContext(input.GetValue().(string))
 	}
+	// Create our own help text
+	setContextForm.WithShowHelp(false)
 	return setContextForm
-}
-
-type KeyMap struct {
-	refresh        key.Binding
-	note           key.Binding
-	edit           key.Binding
-	open           key.Binding
-	start          key.Binding
-	stop           key.Binding
-	done           key.Binding
-	setContextView key.Binding
-}
-
-var keys = KeyMap{
-	refresh: key.NewBinding(
-		key.WithKeys("r"),
-		key.WithHelp("r", "refresh"),
-	),
-	// TODO remove enter for now...
-	// note: key.NewBinding(
-	// 	key.WithKeys("enter", "n"),
-	// 	key.WithHelp("enter/n", dstask.CMD_NOTE),
-	// ),
-	note: key.NewBinding(
-		key.WithKeys("n"),
-		key.WithHelp("n", dstask.CMD_NOTE),
-	),
-	edit: key.NewBinding(
-		key.WithKeys("e"),
-		key.WithHelp("e", dstask.CMD_EDIT),
-	),
-	open: key.NewBinding(
-		key.WithKeys("o"),
-		key.WithHelp("o", dstask.CMD_OPEN),
-	),
-	start: key.NewBinding(
-		key.WithKeys("s"),
-		key.WithHelp("s", dstask.CMD_START),
-	),
-	stop: key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", dstask.CMD_STOP),
-	),
-	done: key.NewBinding(
-		key.WithKeys("d"),
-		key.WithHelp("d", dstask.CMD_DONE),
-	),
-	// TODO use esc, but only in "set context" view
-	// setNextView: key.NewBinding(
-	// 	key.WithKeys("c"),
-	// 	key.WithHelp("c", "Set context..."),
-	// ),
-	setContextView: key.NewBinding(
-		key.WithKeys("c"),
-		key.WithHelp("c", "Set context..."),
-	),
 }
 
 func initialModel() model {
 	tasks := list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	tasks.DisableQuitKeybindings()
+	tasks.SetStatusBarItemName("task", "tasks")
 	tasks.Title = "dstask " + dstask.CMD_NEXT
 	tasks.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			keys.refresh,
-			keys.note,
-			keys.edit,
-			keys.done,
+			dstaskNextKeys.refresh,
+			dstaskNextKeys.note,
+			dstaskNextKeys.edit,
+			dstaskNextKeys.done,
+			dstaskNextKeys.quit,
 		}
 	}
 	tasks.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			keys.refresh,
-			keys.note,
-			keys.edit,
-			keys.open,
-			keys.start,
-			keys.stop,
-			keys.done,
-			keys.setContextView,
+			dstaskNextKeys.refresh,
+			dstaskNextKeys.note,
+			dstaskNextKeys.edit,
+			dstaskNextKeys.open,
+			dstaskNextKeys.start,
+			dstaskNextKeys.stop,
+			dstaskNextKeys.done,
+			dstaskNextKeys.setContextView,
+			dstaskNextKeys.quit,
 		}
 	}
-	tasks.SetStatusBarItemName("task", "tasks")
+
+	setContextHelp := help.New()
+	setContextHelp.ShortHelpView([]key.Binding{
+		setContextKeys.submit,
+		setContextKeys.cancel,
+	})
 
 	return model{
 		tasks:          tasks,
 		setContextForm: newSetContextForm(),
+		setContextHelp: setContextHelp,
 	}
 }
 
